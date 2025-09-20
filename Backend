@@ -1,0 +1,192 @@
+import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import RealDictCursor
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from a .env file
+load_dotenv()
+
+# --- Database Connection and Configuration ---
+def get_db_connection():
+    """Establishes a connection to the PostgreSQL database."""
+    try:
+        conn = psycopg2.connect(
+            host=os.getenv("DB_HOST", "localhost"),
+            database=os.getenv("DB_NAME", "portfolio_tracker"),
+            user=os.getenv("DB_USER", "postgres"),
+            password=os.getenv("DB_PASSWORD", "Allen@123")
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        print(f"Error connecting to database: {e}")
+        return None
+
+# --- Database Schema Setup ---
+def create_table():
+    """Creates the necessary tables for a financial portfolio tracker."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            # Create accounts table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS accounts (
+                    account_id SERIAL PRIMARY KEY,
+                    account_name VARCHAR(100) NOT NULL UNIQUE
+                );
+            """)
+
+            # Create assets table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS assets (
+                    asset_id SERIAL PRIMARY KEY,
+                    ticker VARCHAR(10) NOT NULL UNIQUE,
+                    asset_name VARCHAR(100) NOT NULL
+                );
+            """)
+
+            # Create transactions table with foreign keys and a generated column
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    transaction_id SERIAL PRIMARY KEY,
+                    account_id INT NOT NULL REFERENCES accounts(account_id),
+                    asset_id INT NOT NULL REFERENCES assets(asset_id),
+                    transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('Buy', 'Sell', 'Dividend')),
+                    transaction_date DATE NOT NULL,
+                    quantity NUMERIC(15, 4) NOT NULL,
+                    price_per_unit NUMERIC(15, 2) NOT NULL,
+                    total_value NUMERIC(15, 2) GENERATED ALWAYS AS (quantity * price_per_unit) STORED
+                );
+            """)
+        conn.commit()
+        conn.close()
+
+# --- CRUD Functions ---
+
+def create_transaction(account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit):
+    """Inserts a new transaction into the database."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO transactions (account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit)
+                VALUES (%s, %s, %s, %s, %s, %s);
+            """, (account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit))
+        conn.commit()
+        conn.close()
+
+def read_detailed_transactions():
+    """Retrieves all transactions with detailed asset and account info for display."""
+    conn = get_db_connection()
+    if not conn:
+        return [], []
+    
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT 
+                t.transaction_id,
+                t.transaction_date,
+                a.account_name,
+                ast.asset_name,
+                ast.ticker,
+                t.transaction_type,
+                t.quantity,
+                t.price_per_unit,
+                t.total_value
+            FROM transactions t
+            JOIN accounts a ON t.account_id = a.account_id
+            JOIN assets ast ON t.asset_id = ast.asset_id
+            ORDER BY t.transaction_date DESC;
+        """)
+        
+        records = cur.fetchall()
+        column_names = [desc[0] for desc in cur.description]
+    
+    conn.close()
+    return records, column_names
+
+def update_transaction(transaction_id, account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit):
+    """Updates an existing transaction."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE transactions
+                SET account_id = %s,
+                    asset_id = %s,
+                    transaction_type = %s,
+                    transaction_date = %s,
+                    quantity = %s,
+                    price_per_unit = %s
+                WHERE transaction_id = %s;
+            """, (account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit, transaction_id))
+        conn.commit()
+        conn.close()
+
+def delete_transaction(transaction_id):
+    """Deletes a transaction by its ID."""
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                DELETE FROM transactions WHERE transaction_id = %s;
+            """, (transaction_id,))
+        conn.commit()
+        conn.close()
+
+# --- Business Insights Functions ---
+
+def get_transaction_insights():
+    """Calculates and returns key business insights."""
+    conn = get_db_connection()
+    if not conn:
+        return {}
+    
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT
+                COUNT(transaction_id) AS total_transactions,
+                SUM(CASE WHEN transaction_type = 'Buy' THEN total_value ELSE 0 END) AS total_investment,
+                AVG(price_per_unit) AS average_price_per_unit,
+                MIN(transaction_date) AS first_transaction_date,
+                MAX(transaction_date) AS last_transaction_date
+            FROM transactions;
+        """)
+        insights = cur.fetchone()
+    
+    conn.close()
+    return dict(insights) if insights and insights['total_transactions'] is not None else {}
+
+# Example helper function for initial data setup
+def create_asset(ticker, name):
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO assets (ticker, asset_name)
+                VALUES (%s, %s)
+                ON CONFLICT (ticker) DO NOTHING;
+            """, (ticker, name))
+        conn.commit()
+        conn.close()
+        
+def create_account(account_name):
+    conn = get_db_connection()
+    if conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO accounts (account_name) VALUES (%s) ON CONFLICT (account_name) DO NOTHING;
+            """, (account_name,))
+        conn.commit()
+        conn.close()
+
+if __name__ == '__main__':
+    # Initial setup for the database
+    print("Initializing database schema...")
+    create_table()
+    
+    # Add a sample asset and account if they don't exist
+    create_account('Personal Account')
+    create_asset('TSLA', 'Tesla Inc.')
+    
+    print("Database initialization complete.")
