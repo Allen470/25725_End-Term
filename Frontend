@@ -1,0 +1,90 @@
+import streamlit as st
+import pandas as pd
+import backend_fin as be
+
+def main():
+    st.title("Performance Management")
+
+    # Renamed "Read" to "Transaction Viewer" for clarity
+    menu = ["Create", "Transaction Viewer", "Update", "Delete", "Business Insights"]
+    choice = st.sidebar.selectbox("Menu", menu)
+
+    if choice == "Create":
+        st.subheader("Add New Transaction")
+        # --- Form for creating a transaction ---
+        # Assuming you have tables for accounts and assets to get IDs from.
+        # For simplicity, we are still using number_input.
+        account_id = st.number_input("Account ID", min_value=1, step=1)
+        asset_id = st.number_input("Asset ID", min_value=1, step=1)
+        transaction_type = st.selectbox("Transaction Type", ["Buy", "Sell", "Dividend"])
+        transaction_date = st.date_input("Transaction Date")
+        quantity = st.number_input("Quantity", min_value=0.0, format="%.4f")
+        price_per_unit = st.number_input("Price Per Unit", min_value=0.0, format="%.2f")
+        
+        if st.button("Add Transaction"):
+            be.create_transaction(account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit)
+            st.success("Successfully added new transaction")
+
+    elif choice == "Transaction Viewer":
+        st.subheader("Detailed Transaction Viewer")
+        transactions, colnames = be.read_detailed_transactions()
+        
+        if transactions:
+            # Use pandas DataFrame for a better viewing experience
+            df = pd.DataFrame(transactions, columns=colnames)
+            
+            # Make column names more presentable
+            df.columns = [
+                'ID', 'Date', 'Account', 'Asset Name', 'Ticker',
+                'Type', 'Quantity', 'Price/Unit', 'Total Value'
+            ]
+            
+            # Format columns for better readability
+            df['Price/Unit'] = df['Price/Unit'].map('${:,.2f}'.format)
+            df['Total Value'] = df['Total Value'].map('${:,.2f}'.format)
+            
+            # Use st.dataframe to display the data in an interactive table
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("No transactions to display.")
+            st.write("You can add a new transaction from the 'Create' menu.")
+
+    elif choice == "Update":
+        st.subheader("Update Transaction")
+        # (This section remains unchanged)
+        transaction_id = st.number_input("Transaction ID to Update", min_value=1)
+        account_id = st.number_input("New Account ID", min_value=1)
+        asset_id = st.number_input("New Asset ID", min_value=1)
+        transaction_type = st.selectbox("New Transaction Type", ["Buy", "Sell", "Dividend"])
+        transaction_date = st.date_input("New Transaction Date")
+        quantity = st.number_input("New Quantity", min_value=0.0)
+        price_per_unit = st.number_input("New Price Per Unit", min_value=0.0)
+        if st.button("Update Transaction"):
+            be.update_transaction(transaction_id, account_id, asset_id, transaction_type, transaction_date, quantity, price_per_unit)
+            st.success("Successfully updated transaction")
+
+    elif choice == "Delete":
+        st.subheader("Delete Transaction")
+        # (This section remains unchanged)
+        transaction_id = st.number_input("Transaction ID to Delete", min_value=1)
+        if st.button("Delete Transaction"):
+            be.delete_transaction(transaction_id)
+            st.success("Successfully deleted transaction")
+
+    elif choice == "Business Insights":
+        st.subheader("Business Insights")
+        # (This section remains unchanged)
+        insights = be.get_transaction_insights()
+        if insights:
+            st.metric(label="Total Transactions", value=insights.get('total_transactions', 'N/A'))
+            st.metric(label="Total Investment (Buys)", value=f"${insights.get('total_investment', 0):,.2f}")
+            st.metric(label="Average Price Per Unit", value=f"${insights.get('average_price_per_unit', 0):,.2f}")
+            
+            col1, col2 = st.columns(2)
+            col1.metric(label="First Transaction Date", value=str(insights.get('first_transaction_date', 'N/A')))
+            col2.metric(label="Last Transaction Date", value=str(insights.get('last_transaction_date', 'N/A')))
+        else:
+            st.info("No insights to display.")
+
+if __name__ == '__main__':
+    main()
