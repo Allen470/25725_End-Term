@@ -1,0 +1,4 @@
+SELECT * 
+FROM nonfarm_payrolls
+ORDER BY date DESC
+LIMIT 20;
